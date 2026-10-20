@@ -1,0 +1,47 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Study Buddy - simulated Alexa+</title>
+<style>
+:root{--bg:#0d1426;--card:#1c2846;--teal:#00c8be;--blue:#3c6ee6;--fg:#f0f4ff;--muted:#96a5c3}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}
+header{padding:14px 18px;border-bottom:3px solid var(--teal)}header h1{margin:0;font-size:20px}header p{margin:2px 0 0;color:var(--muted);font-size:12px}
+#log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.m{max-width:85%;padding:10px 14px;border-radius:18px;line-height:1.4}.u{align-self:flex-end;background:var(--blue)}
+.a{align-self:flex-start;background:var(--card);border:1px solid var(--teal)}.t{align-self:flex-start;font-size:12px;color:var(--muted);font-family:monospace}
+form{display:flex;gap:8px;padding:12px;border-top:1px solid var(--card)}input{flex:1;padding:12px;border-radius:12px;border:1px solid var(--card);background:var(--card);color:var(--fg);font-size:16px}
+button{padding:12px 16px;border:0;border-radius:12px;background:var(--teal);color:#032;font-weight:700;font-size:15px}
+#chips{display:flex;gap:6px;flex-wrap:wrap;padding:0 12px 8px}#chips span{font-size:12px;padding:5px 10px;border:1px solid var(--muted);border-radius:99px;color:var(--muted);cursor:pointer}
+</style></head><body>
+<header><h1>Study Buddy <small>(simulated Alexa+)</small></h1><p>Rule-based voice router that calls the Study Buddy MCP server over Streamable HTTP (POST /mcp)</p></header>
+<div id="log"></div><div id="chips"></div>
+<form id="f"><input id="q" placeholder="Say or type a request..." autocomplete="off"><button type="button" id="mic">Mic</button><button>Send</button></form>
+<script>
+let rid=0,quiz=false;
+async function rpc(method,params){const r=await fetch("/mcp",{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json, text/event-stream"},body:JSON.stringify({jsonrpc:"2.0",id:++rid,method,params})});return (await r.json());}
+async function tool(name,args){const j=await rpc("tools/call",{name,arguments:args});show("t","MCP tools/call "+name+" "+JSON.stringify(args));return j.result.content[0].text;}
+function show(c,t){const d=document.createElement("div");d.className="m "+c;d.textContent=t;log.appendChild(d);log.scrollTop=log.scrollHeight;}
+function parseDate(s){s=s.trim().toLowerCase();if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;const now=new Date();
+ if(s==="tomorrow"){now.setDate(now.getDate()+1);return now.toISOString().slice(0,10);}
+ let m=s.match(/in (\d+) days?/);if(m){now.setDate(now.getDate()+ +m[1]);return now.toISOString().slice(0,10);}
+ s=s.replace(/(\d+)(st|nd|rd|th)/,"$1");let d=new Date(s+" "+now.getFullYear()+" 12:00");if(isNaN(d))return null;
+ if(d<now)d.setFullYear(d.getFullYear()+1);return d.toISOString().slice(0,10);}
+async function route(t){let m;const s=t.trim();
+ if(quiz&&!/^(stop|cancel)$/i.test(s)&&!/quiz me/i.test(s)){const r=await tool("answer_quiz",{answer:s.replace(/^(the |my )?answer is /i,"")});if(/Quiz done/.test(r))quiz=false;return r;}
+ if(m=s.match(/quiz me(?: on (.+))?/i)){const r=await tool("start_quiz",{subject:m[1]||"computer science"});quiz=/Question 1/.test(r);return r;}
+ if(m=s.match(/^(?:explain|tell me about|what is|what are)\s+(.+)/i))return tool("explain_topic",{topic:m[1]});
+ if(m=s.match(/^(?:add (?:a )?task|remind me to)\s+(.+)/i))return tool("add_task",{task:m[1]});
+ if(/list (my )?tasks|what are my tasks/i.test(s))return tool("list_tasks",{});
+ if(m=s.match(/^(?:i )?(?:finished|completed?|done with)\s+(?:task\s+)?(.+)/i))return tool("complete_task",{task:m[1]});
+ if(m=s.match(/my (.+?) (?:exam|test) is (?:on )?(.+)/i)){const d=parseDate(m[2]);return d?tool("set_exam",{subject:m[1],date:d}):"I couldn't understand that date.";}
+ if(/next exam|when is my (next )?exam/i.test(s))return tool("next_exam",{});
+ return "Try: explain photosynthesis, add task read chapter two, list my tasks, my physics exam is on November 5th, when is my next exam, or quiz me on biology.";}
+async function say(t){show("u",t);let r;try{r=await route(t);}catch(e){r="Cannot reach the MCP server.";}show("a",r);
+ if(window.speechSynthesis&&speak.checked)speechSynthesis.speak(new SpeechSynthesisUtterance(r));}
+f.onsubmit=e=>{e.preventDefault();if(q.value.trim()){say(q.value);q.value="";}};
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+mic.onclick=()=>{if(!SR)return show("a","Speech recognition isn't supported in this browser. Type instead.");const r=new SR();r.onresult=e=>say(e.results[0][0].transcript);r.start();};
+["explain photosynthesis","add task read chapter two","list my tasks","my physics exam is on November 5th","when is my next exam","quiz me on biology"].forEach(t=>{const c=document.createElement("span");c.textContent=t;c.onclick=()=>say(t);chips.appendChild(c);});
+const lab=document.createElement("label");lab.style.cssText="font-size:12px;color:#96a5c3;padding:0 12px 6px";lab.innerHTML='<input type="checkbox" id="speak" style="width:auto"> speak replies';document.body.insertBefore(lab,document.querySelector("form"));
+(async()=>{const i=await rpc("initialize",{protocolVersion:"2025-11-25",capabilities:{},clientInfo:{name:"alexa-plus-sim",version:"1"}});
+ await fetch("/mcp",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",method:"notifications/initialized"})});
+ const l=await rpc("tools/list",{});show("t","MCP initialize ok, protocol "+i.result.protocolVersion+", "+l.result.tools.length+" tools");show("a","Hi! I'm Study Buddy. Try a suggestion below.");})();
+</script></body></html>
